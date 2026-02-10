@@ -1,0 +1,10 @@
+name = "SolInstrumentsMS"
+uuid = "ed629c17-4564-41cd-ab98-828e79f1d42c"
+version = "0.1.0"
+authors = ["Garrek Stemo <8449000+garrekstemo@users.noreply.github.com>"]
+
+[deps]
+LibSerialPort = "a05a14c7-6e3b-5ba9-90a2-45558833e1df"
+
+[compat]
+LibSerialPort = "0.5.2"
