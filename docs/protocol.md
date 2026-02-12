@@ -147,6 +147,30 @@ Parameters from the `.cfg` file:
 
 Position 0 = **zero order** — grating acts as a mirror, all wavelengths pass.
 
+### Grating travel range
+
+All gratings share the same mechanical travel (from the `.cfg`):
+
+| Position | Meaning |
+|----------|---------|
+| -1491 | Home / limit switch (`R1` reset target) |
+| 0 | Zero order (no dispersion) |
+| 119,000 | Software max position (from `.cfg`) |
+
+For our MS3501i gratings:
+
+| Grating | Groove density | Max wavelength at pos 119,000 |
+|---------|---------------|-------------------------------|
+| [1] UV-Vis | 1800 g/mm | 886 nm |
+| [2] UV-Vis | 1800 g/mm | 886 nm |
+| [3] MIR | 100 g/mm | 15,944 nm |
+
+Typical MIR operating range (4000–7000 nm) uses positions ~25,000–45,000 — well
+within the middle of the travel range.
+
+Backlash compensation on backward moves is clamped to `min(backlash, target_position)`
+to prevent overshooting below position 0.
+
 
 ## DevCtrl Startup Sequence
 
