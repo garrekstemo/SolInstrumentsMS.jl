@@ -270,6 +270,91 @@ const CFG_PATH = joinpath(@__DIR__, "..", "cfg", "MS3501.cfg")
         end
     end
 
+    @testset "Twin state tracking" begin
+        config = load_config(CFG_PATH)
+        mono = Monochromator("/dev/mock", config)
+        conn = MockConnection()
+        connect!(mono, conn)
+
+        g = config.gratings[3]
+
+        @testset "Grating position tracks moves" begin
+            @test conn.grating_position == 0  # mock starts at 0
+
+            # Forward move: mono thinks it's at 33142, sends I1[delta]
+            set_wavelength!(mono, 5200.0)
+            expected_pos = wavelength_to_position(g, 5200.0)
+            delta = expected_pos - Int32(33142)
+            @test conn.grating_position == delta  # mock accumulated delta from 0
+
+            # Another forward move
+            prev_mock_pos = conn.grating_position
+            set_wavelength!(mono, 6000.0)
+            pos_6000 = wavelength_to_position(g, 6000.0)
+            delta2 = pos_6000 - expected_pos
+            @test conn.grating_position == prev_mock_pos + delta2
+        end
+
+        @testset "Backward move with backlash" begin
+            mock_before = conn.grating_position
+            pos_6000 = mono.grating_position
+
+            # Backward move → D(delta+backlash) then I(backlash)
+            set_wavelength!(mono, 4000.0)
+            pos_4000 = wavelength_to_position(g, 4000.0)
+            backward_delta = pos_6000 - pos_4000
+
+            # Mock: subtracted (backward_delta + backlash), then added backlash
+            @test conn.grating_position == mock_before - backward_delta
+        end
+
+        @testset "Shutter state" begin
+            @test conn.shutter_open == false
+            open_shutter!(mono)
+            @test conn.shutter_open == true
+            close_shutter!(mono)
+            @test conn.shutter_open == false
+        end
+
+        @testset "Reset zeroes position" begin
+            reset_grating!(mono)
+            @test conn.grating_position == 0
+        end
+
+        disconnect!(mono)
+    end
+
+    @testset "find_previous_position! with mock" begin
+        config = load_config(CFG_PATH)
+        mono = Monochromator("/dev/mock", config)
+        # Mock starts with a known "saved" position
+        conn = MockConnection(grating_position=Int32(33949))
+        connect!(mono, conn)
+
+        result = find_previous_position!(mono)
+
+        # Driver queried SS0107 → got 33949
+        @test result.position == 33949
+
+        # Driver should have: queried, reset (R1), then moved (I1)
+        @test any(c -> c[1] == "SS0107", conn.command_log)
+        @test any(c -> c[1] == "R1", conn.command_log)
+
+        # After R1, mock position was 0. After I1[33949], mock position is 33949.
+        @test conn.grating_position == 33949
+
+        # Driver's internal tracking should match
+        @test mono.grating_position == 33949
+
+        # Wavelength should be consistent
+        g = config.gratings[mono.current_grating]
+        expected_wl = position_to_wavelength(g, 33949)
+        @test abs(result.wavelength_nm - expected_wl) < 0.1
+        @test abs(get_wavelength(mono) - expected_wl) < 0.1
+
+        disconnect!(mono)
+    end
+
     @testset "MIR grating workflow" begin
         config = load_config(CFG_PATH)
         mono = Monochromator("/dev/mock", config)
