@@ -179,6 +179,18 @@ end
 
 # --- Wavelength conversion ---
 
+"""
+    wavelength_to_position(g::GratingConfig, wavelength_nm::Real) → Int32
+
+Convert a wavelength (nm) to a motor step position using the diffraction grating equation:
+
+    position = asin(λ × 10⁻⁶ × d / (2 cos θ₂)) / Δθ
+
+where `d` is the groove density (lines/mm), `θ₂` is the fixed grating mount angle (rad),
+and `Δθ` is the angular step size (rad/step).
+
+Throws an error if the wavelength is outside the grating's angular range (|sin⁻¹ arg| > 1).
+"""
 function wavelength_to_position(g::GratingConfig, wavelength_nm::Real)
     arg = wavelength_nm * 1e-6 * g.groove_density / 2.0 / cos(g.theta2)
     if abs(arg) > 1.0
@@ -187,6 +199,18 @@ function wavelength_to_position(g::GratingConfig, wavelength_nm::Real)
     return round(Int32, asin(arg) / g.step_size)
 end
 
+"""
+    position_to_wavelength(g::GratingConfig, position::Integer) → Float64
+
+Convert a motor step position to a wavelength (nm) using the inverse grating equation:
+
+    λ_nm = 2 sin(Δθ × position) × cos(θ₂) / d × 10⁶
+
+where `d` is the groove density (lines/mm), `θ₂` is the fixed grating mount angle (rad),
+and `Δθ` is the angular step size (rad/step).
+
+Position 0 corresponds to zero order (all wavelengths reflected).
+"""
 function position_to_wavelength(g::GratingConfig, position::Integer)
     return 2.0 * sin(g.step_size * position) * cos(g.theta2) / g.groove_density * 1e6
 end

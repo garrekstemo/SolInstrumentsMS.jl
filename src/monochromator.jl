@@ -121,7 +121,9 @@ function set_wavelength!(m::Monochromator, wavelength_nm::Real)
     end
     dev = _dev_char(g.device_id)
     delta = Int32(target - m.grating_position)
-    _move_relative!(m, dev, delta, Int32(g.backlash))
+    # Clamp backlash so overshoot doesn't go below position 0
+    backlash = Int32(min(g.backlash, target))
+    _move_relative!(m, dev, delta, backlash)
     m.grating_position = target
     return position_to_wavelength(g, target)
 end
@@ -182,7 +184,9 @@ function set_slit!(m::Monochromator, slit_index::Int, width_um::Real)
     end
     dev = _dev_char(s.device_id)
     delta = Int32(target - m.slit_positions[slit_index])
-    _move_relative!(m, dev, delta, Int32(s.backlash))
+    # Clamp backlash so overshoot doesn't go below position 0
+    backlash = Int32(min(s.backlash, target))
+    _move_relative!(m, dev, delta, backlash)
     m.slit_positions[slit_index] = target
     return target * s.step_size_um
 end

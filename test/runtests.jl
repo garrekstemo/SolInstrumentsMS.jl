@@ -171,6 +171,25 @@ const CFG_PATH = joinpath(@__DIR__, "..", "cfg", "MS3501.cfg")
             @test mono.grating_position == expected_pos
         end
 
+        @testset "Backlash clamped at zero order" begin
+            # mono is at position(4000) from backlash test above
+            g = config.gratings[3]
+            pos_before = mono.grating_position
+            @test pos_before > g.backlash  # sanity: well above backlash
+
+            reset!(conn)
+
+            # Move to zero order — backlash clamped to 0 (target),
+            # so only a single D command (no overshoot)
+            set_wavelength!(mono, 0.0)
+            @test mono.grating_position == 0
+            @test command_count(conn) == 1
+
+            cmd, data = last_command(conn)
+            @test cmd == "D1"
+            @test data == pos_before  # backward by exactly pos_before steps
+        end
+
         @testset "Slit 1 commands (DeviceID=57 → '9')" begin
             reset!(conn)
             s1 = config.slits[1]
