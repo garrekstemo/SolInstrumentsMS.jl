@@ -4,7 +4,7 @@
 Julia driver for SOL instruments (Solar TII) MS-series monochromators/spectrographs.
 
 Supports: MS2001, MS2004, MS3501, MS3504, and their imaging ("i") variants.
-Protocol reverse-engineered from the plasmapper LabVIEW driver.
+Protocol reverse-engineered from DevCtrl serial captures (nibble-encoded ASCII, 8N2).
 
 ## Quick Start
 ```julia
@@ -26,15 +26,19 @@ using LibSerialPort
 include("config.jl")
 include("protocol.jl")
 include("monochromator.jl")
+include("mock.jl")
 
-export Monochromator, MonochromatorConfig
+export Monochromator, MonochromatorConfig, TurretConfig
 export GratingConfig, SlitConfig, MirrorConfig, MirrorPosition
 export load_config
 export connect!, disconnect!, isconnected, identify
-export set_wavelength!, get_wavelength, reset_grating!
+export set_wavelength!, get_wavelength, reset_grating!, find_previous_position!
 export set_slit!, get_slit, reset_slit!
 export set_mirror!, reset_mirror!
 export open_shutter!, close_shutter!
 export wavelength_to_position, position_to_wavelength
+
+# Mock testing
+export MockConnection, last_command, command_count, reset!
 
 end # module SolInstrumentsMS

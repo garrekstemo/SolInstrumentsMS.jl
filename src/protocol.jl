@@ -1,47 +1,180 @@
 # Low-level serial protocol for SOL instruments MS-series
 #
-# Frame: [ASCII command string] [4-byte big-endian Int32 data]
-# Response: 0x06 (ACK) on success
-# Must send byte-by-byte — bulk send fails on this device.
-# See docs/protocol.md for full specification.
+# Wire protocol (DevCtrl format, confirmed from serial capture 2026-02-12):
+#
+# All commands use ASCII nibble-encoded data with \n terminator.
+# Each nibble (0-15) is encoded as byte value + 0x30:
+#   0→'0', 1→'1', ..., 9→'9', A→':', B→';', C→'<', D→'=', E→'>', F→'?'
+#
+# Move command frame: [cmd_string] [nibble_data (variable)] \n
+# No-data command:    [cmd_string] \n
+# Response (move):    ACK (0x06)
+# Response (query):   [nibble_data] \n ACK
+#
+# Every command is preceded by:
+#   1. Purge RX buffer
+#   2. ACK handshake (send 0x06, expect 0x06)
+#   3. Purge RX buffer
+#   4. Send command bytes one at a time
+#   5. Read response
+#
+# Serial config: 9600 baud, 8 data bits, no parity, 2 stop bits (8N2)
+# DTR and RTS asserted.
 
 const ACK = 0x06
+const NEWLINE = 0x0a
 
-function _send_bytes(conn::LibSerialPort.SerialPort, bytes::Vector{UInt8})
+# --- Nibble encoding ---
+
+function _encode_nibbles(val::Integer)
+    val == 0 && return UInt8[0x30]
+    nibbles = UInt8[]
+    v = abs(val)
+    while v > 0
+        pushfirst!(nibbles, UInt8((v & 0x0f) + 0x30))
+        v >>= 4
+    end
+    return nibbles
+end
+
+function _decode_nibbles(bytes::Vector{UInt8})
+    val = 0
+    for b in bytes
+        val = (val << 4) | Int(b - 0x30)
+    end
+    return val
+end
+
+# --- Low-level serial I/O ---
+
+function _send_bytes(conn::IO, bytes::Vector{UInt8})
     for b in bytes
         write(conn, [b])
     end
 end
 
-function _read_byte(conn::LibSerialPort.SerialPort)
+function _read_byte(conn::IO, timeout_ms::Integer=5000)
+    deadline = time_ns() + timeout_ms * 1_000_000
+    while time_ns() < deadline
+        if bytesavailable(conn) > 0
+            buf = zeros(UInt8, 1)
+            read!(conn, buf)
+            return buf[1]
+        end
+        sleep(0.001)
+    end
+    error("Serial read timed out after $(timeout_ms) ms — check connection")
+end
+
+function _purge(conn::IO)
+    n = bytesavailable(conn)
     buf = zeros(UInt8, 1)
-    read!(conn, buf)
-    return buf[1]
+    for _ in 1:n
+        read!(conn, buf)
+    end
 end
 
-function _int32_bytes(val::Int32)
-    return UInt8[
-        (val >> 24) & 0xff,
-        (val >> 16) & 0xff,
-        (val >> 8)  & 0xff,
-        val         & 0xff,
-    ]
+function _handshake(conn::IO; timeout_ms::Integer=3000)
+    _send_bytes(conn, [ACK])
+    resp = _read_byte(conn, timeout_ms)
+    if resp != ACK
+        error("Device handshake failed (expected ACK 0x06, got 0x$(string(resp, base=16)))")
+    end
+    return nothing
 end
 
-function _command(conn::LibSerialPort.SerialPort, cmd::String, data::Int32)
-    frame = vcat(Vector{UInt8}(cmd), _int32_bytes(data))
+# --- Command functions ---
+
+"""
+Send a move command with nibble-encoded data.
+Frame: [cmd] [nibble_data] \\n → response: ACK
+"""
+function _command(conn::IO, cmd::String, data::Integer;
+                  timeout_ms::Integer=5000)
+    _purge(conn)
+    _handshake(conn)
+    _purge(conn)
+    frame = vcat(Vector{UInt8}(cmd), _encode_nibbles(data), [NEWLINE])
     _send_bytes(conn, frame)
-    resp = _read_byte(conn)
+    resp = _read_byte(conn, timeout_ms)
     if resp != ACK
         error("SOL MS command '$cmd' failed (expected ACK 0x06, got 0x$(string(resp, base=16)))")
     end
     return nothing
 end
 
-function _check_connection(conn::LibSerialPort.SerialPort)
+"""
+Send a command with no data payload (shutter, reset).
+Frame: [cmd] \\n → response: ACK
+"""
+function _command_nodata(conn::IO, cmd::String;
+                         timeout_ms::Integer=5000)
+    _purge(conn)
+    _handshake(conn)
+    _purge(conn)
+    frame = vcat(Vector{UInt8}(cmd), [NEWLINE])
+    _send_bytes(conn, frame)
+    resp = _read_byte(conn, timeout_ms)
+    if resp != ACK
+        error("SOL MS command '$cmd' failed (expected ACK 0x06, got 0x$(string(resp, base=16)))")
+    end
+    return nothing
+end
+
+"""
+Send a query command that returns nibble-encoded data with trailing ACK.
+Frame: [cmd] \\n → response: [nibble_data] \\n ACK
+
+Used for A-type register queries (e.g. `A80`).
+"""
+function _query(conn::IO, cmd::String; timeout_ms::Integer=5000)
+    _purge(conn)
+    _handshake(conn)
+    _purge(conn)
+    frame = vcat(Vector{UInt8}(cmd), [NEWLINE])
+    _send_bytes(conn, frame)
+    response_bytes = UInt8[]
+    while true
+        b = _read_byte(conn, timeout_ms)
+        b == NEWLINE && break
+        push!(response_bytes, b)
+    end
+    ack = _read_byte(conn, timeout_ms)
+    if ack != ACK
+        error("SOL MS query '$cmd' missing trailing ACK (got 0x$(string(ack, base=16)))")
+    end
+    return _decode_nibbles(response_bytes)
+end
+
+"""
+Send a query command that returns nibble-encoded data WITHOUT trailing ACK.
+Frame: [cmd] \\n → response: [nibble_data] \\n
+
+Used for G and SS subsystem queries (e.g. `SS0107`).
+"""
+function _query_noack(conn::IO, cmd::String; timeout_ms::Integer=5000)
+    _purge(conn)
+    _handshake(conn)
+    frame = vcat(Vector{UInt8}(cmd), [NEWLINE])
+    _send_bytes(conn, frame)
+    response_bytes = UInt8[]
+    while true
+        b = _read_byte(conn, timeout_ms)
+        b == NEWLINE && break
+        push!(response_bytes, b)
+    end
+    return _decode_nibbles(response_bytes)
+end
+
+function _check_connection(conn::IO; timeout_ms::Integer=3000)
+    _purge(conn)
     _send_bytes(conn, [ACK])
-    resp = _read_byte(conn)
-    return resp == ACK
+    try
+        resp = _read_byte(conn, timeout_ms)
+        return resp == ACK
+    catch
+        return false
+    end
 end
 
 # --- Wavelength conversion ---
