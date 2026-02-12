@@ -95,17 +95,23 @@ end
 
 # --- Relative motor move with backlash ---
 
+function _move_timeout_ms(steps::Integer)
+    # ~5000 steps/sec observed on hardware; use conservative estimate + 3s margin
+    return max(5000, round(Int, abs(steps) / 5000 * 1000) + 3000)
+end
+
 function _move_relative!(m::Monochromator, dev::String, delta::Int32, backlash::Int32)
     if delta == 0
         return
     elseif delta > 0
-        _cmd!(m, "I$dev", delta)
+        _cmd!(m, "I$dev", delta; timeout_ms=_move_timeout_ms(delta))
     else
         if backlash > 0
-            _cmd!(m, "D$dev", Int32(abs(delta) + backlash))
-            _cmd!(m, "I$dev", backlash)
+            total = Int32(abs(delta) + backlash)
+            _cmd!(m, "D$dev", total; timeout_ms=_move_timeout_ms(total))
+            _cmd!(m, "I$dev", backlash; timeout_ms=_move_timeout_ms(backlash))
         else
-            _cmd!(m, "D$dev", Int32(abs(delta)))
+            _cmd!(m, "D$dev", Int32(abs(delta)); timeout_ms=_move_timeout_ms(delta))
         end
     end
 end
