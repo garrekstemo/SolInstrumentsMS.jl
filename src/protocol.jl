@@ -155,6 +155,7 @@ Used for G and SS subsystem queries (e.g. `SS0107`).
 function _query_noack(conn::IO, cmd::String; timeout_ms::Integer=5000)
     _purge(conn)
     _handshake(conn)
+    _purge(conn)
     frame = vcat(Vector{UInt8}(cmd), [NEWLINE])
     _send_bytes(conn, frame)
     response_bytes = UInt8[]

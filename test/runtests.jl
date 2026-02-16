@@ -145,7 +145,6 @@ const CFG_PATH = joinpath(@__DIR__, "..", "cfg", "MS3501.cfg")
         @testset "Grating backlash compensation" begin
             # mono is now at position(5200) from previous test
             g = config.gratings[3]
-            pos_before = mono.grating_position
 
             # First move further forward (no backlash)
             reset!(conn)
@@ -370,6 +369,34 @@ const CFG_PATH = joinpath(@__DIR__, "..", "cfg", "MS3501.cfg")
             wl = set_wavelength!(mono, target_wl)
             @test abs(wl - target_wl) < 1.0
         end
+
+        disconnect!(mono)
+    end
+
+    @testset "Disconnected errors (error() not @assert)" begin
+        config = load_config(CFG_PATH)
+        mono = Monochromator("/dev/mock", config)
+
+        # Not connected — all hardware methods must throw ErrorException
+        @test !isconnected(mono)
+        @test_throws ErrorException set_wavelength!(mono, 5000.0)
+        @test_throws ErrorException find_previous_position!(mono)
+
+        # Bounds checks on slit/mirror/shutter indices
+        conn = MockConnection()
+        connect!(mono, conn)
+
+        @test_throws ErrorException set_slit!(mono, 0, 100.0)
+        @test_throws ErrorException set_slit!(mono, 99, 100.0)
+        @test_throws ErrorException get_slit(mono, 0)
+        @test_throws ErrorException get_slit(mono, 99)
+        @test_throws ErrorException reset_slit!(mono, 0)
+        @test_throws ErrorException reset_slit!(mono, 99)
+
+        @test_throws ErrorException open_shutter!(mono, 0)
+        @test_throws ErrorException open_shutter!(mono, 99)
+        @test_throws ErrorException close_shutter!(mono, 0)
+        @test_throws ErrorException close_shutter!(mono, 99)
 
         disconnect!(mono)
     end

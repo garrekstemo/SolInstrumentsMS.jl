@@ -82,13 +82,13 @@ end
 _dev_char(id::UInt8) = String([Char(id)])
 
 function _cmd!(m::Monochromator, cmd::String, data::Integer; timeout_ms::Integer=0)
-    @assert isconnected(m) "Monochromator not connected"
+    isconnected(m) || error("Monochromator not connected")
     t = timeout_ms > 0 ? timeout_ms : m.timeout_ms
     _command(m.connection, cmd, data; timeout_ms=t)
 end
 
 function _cmd_nodata!(m::Monochromator, cmd::String; timeout_ms::Integer=0)
-    @assert isconnected(m) "Monochromator not connected"
+    isconnected(m) || error("Monochromator not connected")
     t = timeout_ms > 0 ? timeout_ms : m.timeout_ms
     _command_nodata(m.connection, cmd; timeout_ms=t)
 end
@@ -129,8 +129,27 @@ function set_wavelength!(m::Monochromator, wavelength_nm::Real)
     delta = Int32(target - m.grating_position)
     # Clamp backlash so overshoot doesn't go below position 0
     backlash = Int32(min(g.backlash, target))
-    _move_relative!(m, dev, delta, backlash)
-    m.grating_position = target
+
+    # Inline move logic with position updates after each successful sub-command.
+    # If backlash correction fails after overshoot, grating_position still reflects
+    # the actual physical position (not the intended target).
+    if delta == 0
+        # no move needed
+    elseif delta > 0
+        _cmd!(m, "I$dev", delta; timeout_ms=_move_timeout_ms(delta))
+        m.grating_position = target
+    else
+        if backlash > 0
+            total = Int32(abs(delta) + backlash)
+            _cmd!(m, "D$dev", total; timeout_ms=_move_timeout_ms(total))
+            m.grating_position -= total  # physical position after overshoot
+            _cmd!(m, "I$dev", backlash; timeout_ms=_move_timeout_ms(backlash))
+            m.grating_position += backlash  # = target
+        else
+            _cmd!(m, "D$dev", Int32(abs(delta)); timeout_ms=_move_timeout_ms(delta))
+            m.grating_position = target
+        end
+    end
     return position_to_wavelength(g, target)
 end
 
@@ -158,7 +177,7 @@ Equivalent to DevCtrl's "Find Previous Position" dialog on startup.
 Takes ~15 seconds (reset ~9s + move ~6s).
 """
 function find_previous_position!(m::Monochromator)
-    @assert isconnected(m) "Monochromator not connected"
+    isconnected(m) || error("Monochromator not connected")
     g = m.config.gratings[m.current_grating]
     dev = _dev_char(g.device_id)
 
@@ -181,7 +200,7 @@ end
 # --- Slits ---
 
 function set_slit!(m::Monochromator, slit_index::Int, width_um::Real)
-    @assert 1 <= slit_index <= length(m.config.slits) "Slit index $slit_index out of range"
+    1 <= slit_index <= length(m.config.slits) || error("Slit index $slit_index out of range")
     s = m.config.slits[slit_index]
     target = round(Int32, width_um / s.step_size_um)
     if target < 0 || target > s.max_position
@@ -192,18 +211,35 @@ function set_slit!(m::Monochromator, slit_index::Int, width_um::Real)
     delta = Int32(target - m.slit_positions[slit_index])
     # Clamp backlash so overshoot doesn't go below position 0
     backlash = Int32(min(s.backlash, target))
-    _move_relative!(m, dev, delta, backlash)
-    m.slit_positions[slit_index] = target
+
+    # Inline move logic with position updates after each successful sub-command.
+    if delta == 0
+        # no move needed
+    elseif delta > 0
+        _cmd!(m, "I$dev", delta; timeout_ms=_move_timeout_ms(delta))
+        m.slit_positions[slit_index] = target
+    else
+        if backlash > 0
+            total = Int32(abs(delta) + backlash)
+            _cmd!(m, "D$dev", total; timeout_ms=_move_timeout_ms(total))
+            m.slit_positions[slit_index] -= total
+            _cmd!(m, "I$dev", backlash; timeout_ms=_move_timeout_ms(backlash))
+            m.slit_positions[slit_index] += backlash  # = target
+        else
+            _cmd!(m, "D$dev", Int32(abs(delta)); timeout_ms=_move_timeout_ms(delta))
+            m.slit_positions[slit_index] = target
+        end
+    end
     return target * s.step_size_um
 end
 
 function get_slit(m::Monochromator, slit_index::Int)
-    @assert 1 <= slit_index <= length(m.config.slits) "Slit index $slit_index out of range"
+    1 <= slit_index <= length(m.config.slits) || error("Slit index $slit_index out of range")
     return m.slit_positions[slit_index] * m.config.slits[slit_index].step_size_um
 end
 
 function reset_slit!(m::Monochromator, slit_index::Int)
-    @assert 1 <= slit_index <= length(m.config.slits) "Slit index $slit_index out of range"
+    1 <= slit_index <= length(m.config.slits) || error("Slit index $slit_index out of range")
     s = m.config.slits[slit_index]
     dev = _dev_char(s.device_id)
     _cmd_nodata!(m, "R$dev"; timeout_ms=10_000)
@@ -214,9 +250,9 @@ end
 # --- Mirrors ---
 
 function set_mirror!(m::Monochromator, mirror_index::Int, position_index::Int)
-    @assert 1 <= mirror_index <= length(m.config.mirrors) "Mirror index $mirror_index out of range"
+    1 <= mirror_index <= length(m.config.mirrors) || error("Mirror index $mirror_index out of range")
     mir = m.config.mirrors[mirror_index]
-    @assert 1 <= position_index <= length(mir.positions) "Position index $position_index out of range"
+    1 <= position_index <= length(mir.positions) || error("Position index $position_index out of range")
     dev = _dev_char(mir.device_id)
     _cmd!(m, "I$dev", mir.positions[position_index].position)
     m.mirror_indices[mirror_index] = position_index
@@ -224,7 +260,7 @@ function set_mirror!(m::Monochromator, mirror_index::Int, position_index::Int)
 end
 
 function reset_mirror!(m::Monochromator, mirror_index::Int)
-    @assert 1 <= mirror_index <= length(m.config.mirrors) "Mirror index $mirror_index out of range"
+    1 <= mirror_index <= length(m.config.mirrors) || error("Mirror index $mirror_index out of range")
     mir = m.config.mirrors[mirror_index]
     dev = _dev_char(mir.device_id)
     _cmd_nodata!(m, "R$dev")
@@ -235,7 +271,7 @@ end
 # --- Shutter ---
 
 function open_shutter!(m::Monochromator, shutter_index::Int=1)
-    @assert 1 <= shutter_index <= m.config.shutter_count "Shutter index $shutter_index out of range"
+    1 <= shutter_index <= m.config.shutter_count || error("Shutter index $shutter_index out of range")
     dev = _dev_char(m.config.shutter_device_id)
     _cmd_nodata!(m, "I$dev$shutter_index")
     m.shutter_open[shutter_index] = true
@@ -243,7 +279,7 @@ function open_shutter!(m::Monochromator, shutter_index::Int=1)
 end
 
 function close_shutter!(m::Monochromator, shutter_index::Int=1)
-    @assert 1 <= shutter_index <= m.config.shutter_count "Shutter index $shutter_index out of range"
+    1 <= shutter_index <= m.config.shutter_count || error("Shutter index $shutter_index out of range")
     dev = _dev_char(m.config.shutter_device_id)
     _cmd_nodata!(m, "D$dev$shutter_index")
     m.shutter_open[shutter_index] = false
