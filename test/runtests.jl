@@ -1,9 +1,14 @@
 using Test
 using SolInstrumentsMS
+using Aqua
 
 const CFG_PATH = joinpath(@__DIR__, "..", "cfg", "MS3501.cfg")
 
 @testset "SolInstrumentsMS" begin
+
+    @testset "Code quality (Aqua.jl)" begin
+        Aqua.test_all(SolInstrumentsMS)
+    end
 
     @testset "Config parsing" begin
         config = load_config(CFG_PATH)
