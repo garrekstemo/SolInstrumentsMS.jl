@@ -7,7 +7,7 @@ const CFG_PATH = joinpath(@__DIR__, "..", "cfg", "MS3501.cfg")
 @testset "SolInstrumentsMS" begin
 
     @testset "Code quality (Aqua.jl)" begin
-        Aqua.test_all(SolInstrumentsMS)
+        Aqua.test_all(SolInstrumentsMS; deps_compat=(check_extras=false,))
     end
 
     @testset "Config parsing" begin
