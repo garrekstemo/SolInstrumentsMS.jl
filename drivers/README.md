@@ -31,6 +31,15 @@ token in `cfg_path`, and hands the resulting absolute path to
 `SolInstrumentsMS.load_config(...)`. You edit the JSON; you do **not**
 hand-edit the `.cfg`.
 
+## User-level overrides
+
+These presets are defaults. To override a preset without editing this
+repository, drop a file with the same name into
+`~/Library/Application Support/QPSDrive/drivers/` — QPSDrive checks that
+folder first and stops at the first match. Typical use: copying this
+`ms3501i.json` there and editing the copy to point `cfg_path` at a
+unit-specific `.cfg` file you've saved elsewhere.
+
 ## `${pkgdir:SolInstrumentsMS}` substitution
 
 `cfg_path` uses the token `${pkgdir:SolInstrumentsMS}`, which QPSDrive
