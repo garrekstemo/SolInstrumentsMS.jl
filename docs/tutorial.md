@@ -17,8 +17,13 @@ the same procedure DevCtrl performs on startup. Takes ~14 seconds.
 
 ```julia
 result = find_previous_position!(mono)
-# (position = 33949, wavelength_nm = 5224.3)
+# (position = 32458, wavelength_nm = 5000.0)
 ```
+
+`position` is the physical firmware step counter, not the raw EEPROM value.
+The two differ by `|NullPosition|` because `R1` homes the firmware to
+`-|NullPosition|` before the restore move (see `monochromator.jl` for the
+full derivation).
 
 
 ## Moving to a Wavelength
