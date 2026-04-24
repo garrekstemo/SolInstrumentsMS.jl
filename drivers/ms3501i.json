@@ -1,0 +1,16 @@
+{
+  "_driver_type": "monochromator",
+  "_model": "SOL Instruments MS3501i",
+  "_manufacturer": "SOL Instruments",
+  "_description": "Czerny-Turner scanning monochromator with 3-position turret.",
+
+  "_field_notes": {
+    "port":     "MACHINE-SPECIFIC: serial device path (macOS: /dev/cu.usbserial-*).",
+    "model":    "MODEL label (informational).",
+    "cfg_path": "HARDWARE-SPECIFIC: path to the manufacturer .cfg file describing this particular mono's gratings, calibration, and steps. Defaults to the copy shipped with SolInstrumentsMS.jl; override only if you have a unit-specific calibration file."
+  },
+
+  "model":    "MS3501i",
+  "port":     "/dev/cu.usbserial-REPLACE",
+  "cfg_path": "${pkgdir:SolInstrumentsMS}/cfg/MS3501.cfg"
+}
