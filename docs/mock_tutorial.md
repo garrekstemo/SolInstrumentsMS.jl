@@ -92,24 +92,37 @@ disconnect!(mono)
 
 ## Simulating a Saved Position
 
-Pass `grating_position` to the constructor to simulate a position stored
-in the controller's EEPROM. This is what `find_previous_position!` reads.
+Pass `grating_position` to the constructor to simulate the value stored in the
+controller's EEPROM (what `find_previous_position!` reads via `SS0107`). To
+match real-hardware behavior, also pass `grating_reset_position` — the DevCtrl
+convention is that `R1` homes the firmware counter to `-|NullPosition|`, so the
+post-restore position ends up `|NullPosition|` lower than the EEPROM value.
 
 ```julia
+g = config.gratings[3]  # MIR grating on CurGrating=3 in the shipped cfg
+
 mono = Monochromator("/dev/mock", config)
-conn = MockConnection(grating_position=Int32(33949))
+conn = MockConnection(
+    grating_position=Int32(33949),
+    grating_reset_position=g.reset_position,  # = -1491 in MS3501.cfg
+)
 connect!(mono, conn)
 
 result = find_previous_position!(mono)
-# (position = 33949, wavelength_nm = 5224.3)
+# (position = 32458, wavelength_nm = 5000.0)
 
 # The mock simulated the full sequence:
-#   1. SS0107 query → returned 33949
-#   2. R1 reset → zeroed position
-#   3. I1 move → restored to 33949
+#   1. SS0107 query        → returned 33949 (EEPROM value)
+#   2. R1 reset            → firmware counter = grating_reset_position = -1491
+#   3. I1 move by 33949    → firmware counter = -1491 + 33949 = 32458
 
 disconnect!(mono)
 ```
+
+If `grating_reset_position` is left at the default (0), the mock uses a
+simpler "firmware counter = 0 at reset" convention — fine for exercising
+protocol mechanics but it will not reproduce the `|NullPosition|` offset
+that the real controller applies.
 
 
 ## Writing Tests
@@ -148,6 +161,7 @@ end
 |---|---|
 | `MockConnection()` | Create mock at grating position 0 |
 | `MockConnection(grating_position=Int32(n))` | Create mock with saved EEPROM position |
+| `MockConnection(grating_reset_position=Int32(n))` | Position the firmware counter snaps to on `R1` (defaults to 0) |
 | `last_command(conn)` | Last `(cmd, data)` tuple, or `nothing` |
 | `command_count(conn)` | Number of commands since last `reset!` |
 | `reset!(conn)` | Clear command log and I/O buffers (keeps positions) |

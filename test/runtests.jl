@@ -330,33 +330,70 @@ const CFG_PATH = joinpath(@__DIR__, "..", "cfg", "MS3501.cfg")
 
     @testset "find_previous_position! with mock" begin
         config = load_config(CFG_PATH)
+        g = config.gratings[3]  # CurGrating=3 in .cfg (MIR)
+        saved_pos = Int32(33949)
+        expected_pos = saved_pos + g.reset_position  # 33949 + (-1491) = 32458
+
         mono = Monochromator("/dev/mock", config)
-        # Mock starts with a known "saved" position
-        conn = MockConnection(grating_position=Int32(33949))
+        # Simulate hardware: EEPROM holds 33949, R1 homes firmware to reset_position.
+        conn = MockConnection(
+            grating_position=saved_pos,
+            grating_reset_position=g.reset_position,
+        )
         connect!(mono, conn)
 
         result = find_previous_position!(mono)
 
-        # Driver queried SS0107 → got 33949
-        @test result.position == 33949
-
-        # Driver should have: queried, reset (R1), then moved (I1)
+        # Driver should have: queried SS0107, reset (R1), then moved (I1)
         @test any(c -> c[1] == "SS0107", conn.command_log)
         @test any(c -> c[1] == "R1", conn.command_log)
 
-        # After R1, mock position was 0. After I1[33949], mock position is 33949.
-        @test conn.grating_position == 33949
+        # After R1, mock firmware counter is at reset_position (-1491).
+        # After I1[saved_pos], firmware is at reset_position + saved_pos = 32458.
+        @test conn.grating_position == expected_pos
 
-        # Driver's internal tracking should match
-        @test mono.grating_position == 33949
+        # Driver's internal tracker must match the firmware counter — that's the
+        # whole point of the EEPROM → reset → move sequence.
+        @test mono.grating_position == expected_pos
+        @test result.position == expected_pos
 
-        # Wavelength should be consistent
-        g = config.gratings[mono.current_grating]
-        expected_wl = position_to_wavelength(g, 33949)
+        # Wavelength must be derived from the true firmware position, not from the
+        # raw EEPROM value. A regression here would reintroduce the ~220 nm offset
+        # observed on MS3501i S/N 11076 before this bug was fixed.
+        expected_wl = position_to_wavelength(g, expected_pos)
         @test abs(result.wavelength_nm - expected_wl) < 0.1
         @test abs(get_wavelength(mono) - expected_wl) < 0.1
 
         disconnect!(mono)
+    end
+
+    @testset "find_previous_position! invariant: N → N + reset_position" begin
+        # Regression test for the EEPROM-offset bug: the driver's grating_position
+        # after find_previous_position! must equal (saved_pos + reset_position),
+        # not saved_pos. Run across several EEPROM values to ensure the offset
+        # holds independent of the specific stored value.
+        config = load_config(CFG_PATH)
+        g = config.gratings[3]
+
+        for saved_pos in (Int32(20000), Int32(33949), Int32(45942), Int32(60000))
+            mono = Monochromator("/dev/mock", config)
+            conn = MockConnection(
+                grating_position=saved_pos,
+                grating_reset_position=g.reset_position,
+            )
+            connect!(mono, conn)
+
+            result = find_previous_position!(mono)
+
+            expected_pos = saved_pos + g.reset_position
+            @test mono.grating_position == expected_pos
+            @test conn.grating_position == expected_pos
+            @test result.position == expected_pos
+            @test get_wavelength(mono) ==
+                  position_to_wavelength(g, expected_pos)
+
+            disconnect!(mono)
+        end
     end
 
     @testset "MIR grating workflow" begin

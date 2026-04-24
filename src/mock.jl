@@ -27,12 +27,14 @@ mutable struct MockConnection <: IO
 
     # Digital twin state — tracks what the real controller would track
     grating_position::Int32
+    grating_reset_position::Int32  # value R1 homes the firmware counter to
     slit_positions::Dict{Char, Int32}
     shutter_open::Bool
     device_types::Dict{Char, Int}
 end
 
 function MockConnection(; grating_position::Int32=Int32(0),
+                          grating_reset_position::Int32=Int32(0),
                           device_types::Dict{Char, Int}=Dict(
                               '1' => 255,  # grating: stepper motor
                               '5' => 0,    # turret: no motor
@@ -44,6 +46,7 @@ function MockConnection(; grating_position::Int32=Int32(0),
         UInt8[], UInt8[], true,
         Tuple{String, Int32}[],
         grating_position,
+        grating_reset_position,
         Dict{Char, Int32}('9' => Int32(0), ':' => Int32(0)),
         false,
         device_types
@@ -196,7 +199,7 @@ function _handle_reset_cmd!(mc::MockConnection, frame::Vector{UInt8})
 
     dev = length(frame) >= 2 ? Char(frame[2]) : '?'
     if dev == '1'
-        mc.grating_position = Int32(0)
+        mc.grating_position = mc.grating_reset_position
     elseif haskey(mc.slit_positions, dev)
         mc.slit_positions[dev] = Int32(0)
     end

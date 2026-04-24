@@ -190,11 +190,15 @@ function find_previous_position!(m::Monochromator)
     # Move from home to saved position
     _cmd!(m, "I$dev", saved_pos; timeout_ms=15_000)
 
-    # Update internal tracking
-    m.grating_position = saved_pos
+    # R1 homes the firmware counter to g.reset_position (= -|NullPosition|), and
+    # the subsequent I1 saved_pos advances it by saved_pos. The DevCtrl EEPROM
+    # convention stores the value offset by |NullPosition| from the firmware
+    # counter, so the true physical position is (saved_pos + g.reset_position).
+    pos = saved_pos + g.reset_position
+    m.grating_position = pos
 
-    wl = position_to_wavelength(g, saved_pos)
-    return (position=saved_pos, wavelength_nm=wl)
+    wl = position_to_wavelength(g, pos)
+    return (position=pos, wavelength_nm=wl)
 end
 
 # --- Slits ---
